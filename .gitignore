@@ -20,7 +20,7 @@ Thumbs.db
 # Build artifacts (EXE, dist)
 /build/
 /dist/
-*.spec
+
 
 # Output data
 /output/
