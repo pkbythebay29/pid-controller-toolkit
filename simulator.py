@@ -1,143 +1,179 @@
 import numpy as np
 import pandas as pd
 import tkinter as tk
-from tkinter import filedialog, simpledialog, messagebox, ttk
+from tkinter import ttk, messagebox, filedialog
 import matplotlib.pyplot as plt
 
-# === Generation Functions ===
-def generate_stable_pressure(time, sp_type="Constant", noise_level=0.5):
-    if sp_type == "Constant":
-        sp = np.ones_like(time) * 50
-    elif sp_type == "Drifting":
-        sp = 50 + 2 * np.sin(0.1 * time)  # small slow drift
-    elif sp_type == "Random Fluctuations":
-        sp = 50 + np.random.normal(0, 1, len(time))
-    pv = sp + np.random.normal(0, noise_level, len(time))
-    return pv, sp
 
-def generate_step_pressure(time, step_type="Single", delay=0, noise_level=0.5):
-    sp = np.ones_like(time) * 40  # Initial SP
-    if step_type == "Single":
-        sp[np.where(time >= 5)] = 60
-    elif step_type == "Multiple":
-        sp[np.where(time >= 3)] = 50
-        sp[np.where(time >= 6)] = 65
-        sp[np.where(time >= 8)] = 55
-    elif step_type == "Ramp":
-        sp = np.linspace(40, 60, len(time))
-    
-    pv = np.zeros_like(time)
-    for i, t in enumerate(time):
-        if t < delay:
-            pv[i] = sp[0] + np.random.normal(0, noise_level)
-        else:
-            pv[i] = sp[i] + np.random.normal(0, noise_level)
-    return pv, sp
+class PressureSimulatorGUI:
+    def __init__(self, master):
+        self.master = master
+        master.title("Pressure Simulator")
 
-def generate_oscillatory_pressure(time, sp_oscillates=False, delay=0, noise_level=0.5):
-    sp = np.ones_like(time) * 50
-    if sp_oscillates:
-        sp += 5 * np.sin(2 * np.pi * 0.3 * time)
-    pv = np.zeros_like(time)
-    for i, t in enumerate(time):
-        if t < delay:
-            pv[i] = sp[0] + np.random.normal(0, noise_level)
-        else:
-            pv[i] = sp[i] + 8 * np.sin(2 * np.pi * 0.5 * time[i]) + np.random.normal(0, noise_level)
-    return pv, sp
+        # === Behavior Selection ===
+        ttk.Label(master, text="Select Behavior Type:").grid(row=0, column=0, sticky="w")
+        self.behavior_var = tk.StringVar()
+        self.behavior_menu = ttk.Combobox(master, textvariable=self.behavior_var, values=[
+            "Stable", "Step Change", "Oscillatory", "Nonlinear"
+        ])
+        self.behavior_menu.grid(row=0, column=1)
+        self.behavior_menu.bind("<<ComboboxSelected>>", self.update_sub_options)
 
-def generate_nonlinear_pressure(time, delay=0, noise_level=0.5):
-    sp = np.ones_like(time) * 50
-    pv = []
-    for i, t in enumerate(time):
-        response = sp[i] + 10 * np.tanh((t - 5) / 2)
-        if t < delay:
-            response = sp[0]
-        response += np.random.normal(0, noise_level)
-        pv.append(response)
-    return np.array(pv), sp
+        # === Sub-options (Dynamic) ===
+        ttk.Label(master, text="Sub-type:").grid(row=1, column=0, sticky="w")
+        self.sub_option_var = tk.StringVar()
+        self.sub_option_menu = ttk.Combobox(master, textvariable=self.sub_option_var)
+        self.sub_option_menu.grid(row=1, column=1)
 
-# === Apply Saturation ===
-def apply_saturation(signal, min_out=None, max_out=None):
-    if min_out is not None:
-        signal = np.maximum(signal, min_out)
-    if max_out is not None:
-        signal = np.minimum(signal, max_out)
-    return signal
+        # === Delay ===
+        ttk.Label(master, text="Delay (seconds):").grid(row=2, column=0, sticky="w")
+        self.delay_entry = ttk.Entry(master)
+        self.delay_entry.insert(0, "0")
+        self.delay_entry.grid(row=2, column=1)
 
-# === Simulator Main Logic ===
-def simulator():
-    # Tkinter Setup
-    root = tk.Tk()
-    root.withdraw()
+        # === Noise ===
+        ttk.Label(master, text="Noise Level (bar):").grid(row=3, column=0, sticky="w")
+        self.noise_entry = ttk.Entry(master)
+        self.noise_entry.insert(0, "0.5")
+        self.noise_entry.grid(row=3, column=1)
 
-    behaviors = ["Stable", "Step Change", "Oscillatory", "Nonlinear"]
-    behavior = simpledialog.askstring("Behavior Type", f"Choose behavior: {', '.join(behaviors)}")
-    if behavior is None:
-        messagebox.showinfo("Cancelled", "Simulation cancelled.")
-        return
+        # === Saturation ===
+        self.saturation_var = tk.BooleanVar()
+        self.saturation_check = ttk.Checkbutton(master, text="Apply Output Saturation", variable=self.saturation_var, command=self.toggle_saturation_entries)
+        self.saturation_check.grid(row=4, column=0, columnspan=2, sticky="w")
 
-    time = np.linspace(0, 10, 100)
-    noise_level = simpledialog.askfloat("Noise Level", "Enter noise level (e.g., 0.5):", initialvalue=0.5)
-    delay = simpledialog.askfloat("Delay (seconds)", "Enter delay before PV responds (0 for no delay):", initialvalue=0)
+        ttk.Label(master, text="Min Output (bar):").grid(row=5, column=0, sticky="w")
+        self.min_out_entry = ttk.Entry(master)
+        self.min_out_entry.grid(row=5, column=1)
+        self.min_out_entry.configure(state="disabled")
 
-    # Saturation setup
-    saturation_choice = messagebox.askyesno("Output Saturation", "Do you want to apply output saturation?")
-    min_out, max_out = None, None
-    if saturation_choice:
-        min_out = simpledialog.askfloat("Min Output", "Minimum Output Value (e.g., 30):")
-        max_out = simpledialog.askfloat("Max Output", "Maximum Output Value (e.g., 70):")
+        ttk.Label(master, text="Max Output (bar):").grid(row=6, column=0, sticky="w")
+        self.max_out_entry = ttk.Entry(master)
+        self.max_out_entry.grid(row=6, column=1)
+        self.max_out_entry.configure(state="disabled")
 
-    # === Handle Behavior Selection ===
-    if behavior == "Stable":
-        stable_types = ["Constant", "Drifting", "Random Fluctuations"]
-        sp_type = simpledialog.askstring("Stable Type", f"Select stable type: {', '.join(stable_types)}")
-        pv, sp = generate_stable_pressure(time, sp_type=sp_type, noise_level=noise_level)
-    elif behavior == "Step Change":
-        step_types = ["Single", "Multiple", "Ramp"]
-        step_type = simpledialog.askstring("Step Type", f"Select step type: {', '.join(step_types)}")
-        pv, sp = generate_step_pressure(time, step_type=step_type, delay=delay, noise_level=noise_level)
-    elif behavior == "Oscillatory":
-        sp_osc = messagebox.askyesno("Oscillating SP?", "Should the setpoint itself oscillate?")
-        pv, sp = generate_oscillatory_pressure(time, sp_oscillates=sp_osc, delay=delay, noise_level=noise_level)
-    elif behavior == "Nonlinear":
-        pv, sp = generate_nonlinear_pressure(time, delay=delay, noise_level=noise_level)
-    else:
-        messagebox.showerror("Error", "Invalid behavior type selected.")
-        return
+        # === Buttons ===
+        ttk.Button(master, text="Generate & Save", command=self.generate_and_save).grid(row=7, column=0, pady=10)
+        ttk.Button(master, text="Show Help / README", command=self.show_help).grid(row=7, column=1, pady=10)
 
-    # Apply saturation if enabled
-    pv = apply_saturation(pv, min_out, max_out)
+    def update_sub_options(self, event):
+        behavior = self.behavior_var.get()
+        if behavior == "Stable":
+            self.sub_option_menu['values'] = ["Constant", "Drifting", "Random Fluctuations"]
+        elif behavior == "Step Change":
+            self.sub_option_menu['values'] = ["Single", "Multiple", "Ramp"]
+        elif behavior == "Oscillatory":
+            self.sub_option_menu['values'] = ["PV Oscillates", "SP Oscillates"]
+        elif behavior == "Nonlinear":
+            self.sub_option_menu['values'] = ["Saturation Response"]
+        self.sub_option_var.set("")
 
-    # Fake OUT signal
-    out = sp - pv + np.random.normal(0, 0.2, len(time))
-    out = apply_saturation(out, min_out, max_out)
+    def toggle_saturation_entries(self):
+        state = "normal" if self.saturation_var.get() else "disabled"
+        self.min_out_entry.configure(state=state)
+        self.max_out_entry.configure(state=state)
 
-    # Save to CSV
-    output_path = filedialog.asksaveasfilename(
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv")],
-        title="Save generated data as..."
-    )
+    def generate_and_save(self):
+        try:
+            time = np.linspace(0, 10, 100)
+            delay = float(self.delay_entry.get())
+            noise = float(self.noise_entry.get())
+            min_out = float(self.min_out_entry.get()) if self.saturation_var.get() else None
+            max_out = float(self.max_out_entry.get()) if self.saturation_var.get() else None
+            behavior = self.behavior_var.get()
+            subtype = self.sub_option_var.get()
 
-    if output_path:
-        df = pd.DataFrame({'time': time, 'PV': pv, 'OUT': out, 'SP': sp})
-        df.to_csv(output_path, index=False)
-        messagebox.showinfo("Success", f"Data saved to: {output_path}")
+            if behavior == "Stable":
+                sp = np.ones_like(time) * 50
+                if subtype == "Drifting":
+                    sp += 2 * np.sin(0.2 * time)
+                elif subtype == "Random Fluctuations":
+                    sp += np.random.normal(0, 1, len(time))
+                pv = sp + np.random.normal(0, noise, len(time))
 
-        # Plot results
-        plt.figure(figsize=(8, 5))
-        plt.plot(time, pv, label="Process Variable (PV)")
-        plt.plot(time, sp, label="Setpoint (SP)", linestyle="--")
-        plt.plot(time, out, label="Output (OUT)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Pressure")
-        plt.title(f"Simulated Pressure Data ({behavior})")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-    else:
-        messagebox.showinfo("Cancelled", "Save operation cancelled.")
+            elif behavior == "Step Change":
+                sp = np.ones_like(time) * 40
+                if subtype == "Single":
+                    sp[time >= 5] = 60
+                elif subtype == "Multiple":
+                    sp[time >= 3] = 50
+                    sp[time >= 6] = 65
+                    sp[time >= 8] = 55
+                elif subtype == "Ramp":
+                    sp = np.linspace(40, 60, len(time))
+                pv = np.where(time < delay, sp[0], sp) + np.random.normal(0, noise, len(time))
 
+            elif behavior == "Oscillatory":
+                if subtype == "SP Oscillates":
+                    sp = 50 + 5 * np.sin(2 * np.pi * 0.2 * time)
+                else:
+                    sp = np.ones_like(time) * 50
+                pv = np.where(time < delay, sp[0], sp) + 8 * np.sin(2 * np.pi * 0.5 * time) + np.random.normal(0, noise, len(time))
+
+            elif behavior == "Nonlinear":
+                sp = np.ones_like(time) * 50
+                pv = [sp[0] if t < delay else sp[0] + 10 * np.tanh((t - 5) / 2) + np.random.normal(0, noise) for t in time]
+                pv = np.array(pv)
+
+            # Generate fake controller output
+            out = sp - pv + np.random.normal(0, 0.2, len(time))
+
+            # Saturation
+            if self.saturation_var.get():
+                pv = np.clip(pv, min_out, max_out)
+                out = np.clip(out, min_out, max_out)
+
+            # Save
+            path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")])
+            if not path:
+                return
+
+            df = pd.DataFrame({'time': time, 'PV': pv, 'OUT': out, 'SP': sp})
+            df.to_csv(path, index=False)
+            messagebox.showinfo("Saved", f"Data saved to {path}")
+
+            # Plot
+            plt.plot(time, pv, label="PV")
+            plt.plot(time, sp, label="SP", linestyle="--")
+            plt.plot(time, out, label="OUT")
+            plt.title(f"Simulated Data ({behavior})")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Pressure (bar)")
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def show_help(self):
+        help_text = (
+            "📘 Pressure Simulator Help\n\n"
+            "This tool generates synthetic pressure control data for PID tuning.\n\n"
+            "✅ BEHAVIOR TYPES:\n"
+            "- Stable:\n"
+            "   • Constant: PV near SP with low noise\n"
+            "   • Drifting: PV drifts over time (e.g., leakage)\n"
+            "   • Random SP: SP jitters (e.g., manual tuning)\n\n"
+            "- Step Change:\n"
+            "   • Single: Sudden SP jump\n"
+            "   • Multiple: Several SP steps\n"
+            "   • Ramp: Gradual increase in SP\n\n"
+            "- Oscillatory:\n"
+            "   • PV Oscillates: simulates underdamped response\n"
+            "   • SP Oscillates: tests controller tracking\n\n"
+            "- Nonlinear:\n"
+            "   • Simulates actuator saturation and process limits\n\n"
+            "🛠️ OPTIONS:\n"
+            "- Delay (s): PV lags behind SP\n"
+            "- Noise Level (bar): Adds realistic process noise\n"
+            "- Saturation (bar): Clamps PV/OUT to mimic equipment limits\n"
+        )
+        messagebox.showinfo("Help / README", help_text)
+
+
+# === Launch GUI ===
 if __name__ == "__main__":
-    simulator()
+    root = tk.Tk()
+    app = PressureSimulatorGUI(root)
+    root.mainloop()
