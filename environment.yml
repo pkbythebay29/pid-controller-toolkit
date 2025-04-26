@@ -1,0 +1,10 @@
+name: PID_Simulator
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - tkinter  # Note: tkinter comes with the standard Python package on Windows
