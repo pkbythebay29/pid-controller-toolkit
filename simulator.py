@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import matplotlib.pyplot as plt
 
 
 class PressureSimulatorGUI:
     def __init__(self, master):
         self.master = master
-        master.title("Pressure Simulator")
+        master.title("Pressure Simulator with PV Disturbance Option")
 
         # === Behavior Selection ===
         ttk.Label(master, text="Select Behavior Type:").grid(row=0, column=0, sticky="w")
@@ -19,19 +19,18 @@ class PressureSimulatorGUI:
         self.behavior_menu.grid(row=0, column=1)
         self.behavior_menu.bind("<<ComboboxSelected>>", self.update_sub_options)
 
-        # === Sub-options (Dynamic) ===
+        # === Sub-options ===
         ttk.Label(master, text="Sub-type:").grid(row=1, column=0, sticky="w")
         self.sub_option_var = tk.StringVar()
         self.sub_option_menu = ttk.Combobox(master, textvariable=self.sub_option_var)
         self.sub_option_menu.grid(row=1, column=1)
 
-        # === Delay ===
+        # === Delay, Noise ===
         ttk.Label(master, text="Delay (seconds):").grid(row=2, column=0, sticky="w")
         self.delay_entry = ttk.Entry(master)
         self.delay_entry.insert(0, "0")
         self.delay_entry.grid(row=2, column=1)
 
-        # === Noise ===
         ttk.Label(master, text="Noise Level (bar):").grid(row=3, column=0, sticky="w")
         self.noise_entry = ttk.Entry(master)
         self.noise_entry.insert(0, "0.5")
@@ -61,7 +60,7 @@ class PressureSimulatorGUI:
         if behavior == "Stable":
             self.sub_option_menu['values'] = ["Constant", "Drifting", "Random Fluctuations"]
         elif behavior == "Step Change":
-            self.sub_option_menu['values'] = ["Single", "Multiple", "Ramp"]
+            self.sub_option_menu['values'] = ["Single", "Multiple", "Ramp", "PV Step Disturbance"]
         elif behavior == "Oscillatory":
             self.sub_option_menu['values'] = ["PV Oscillates", "SP Oscillates"]
         elif behavior == "Nonlinear":
@@ -95,13 +94,22 @@ class PressureSimulatorGUI:
                 sp = np.ones_like(time) * 40
                 if subtype == "Single":
                     sp[time >= 5] = 60
+                    pv = np.where(time < delay, sp[0], sp) + np.random.normal(0, noise, len(time))
                 elif subtype == "Multiple":
                     sp[time >= 3] = 50
                     sp[time >= 6] = 65
                     sp[time >= 8] = 55
+                    pv = np.where(time < delay, sp[0], sp) + np.random.normal(0, noise, len(time))
                 elif subtype == "Ramp":
                     sp = np.linspace(40, 60, len(time))
-                pv = np.where(time < delay, sp[0], sp) + np.random.normal(0, noise, len(time))
+                    pv = np.where(time < delay, sp[0], sp) + np.random.normal(0, noise, len(time))
+                elif subtype == "PV Step Disturbance":
+                    sp = np.ones_like(time) * 50  # Fixed SP
+                    pv = np.copy(sp)
+                    disturbance_time = float(simpledialog.askstring("Disturbance Time", "When should the PV disturbance occur (seconds)?", initialvalue="5"))
+                    disturbance_size = float(simpledialog.askstring("Disturbance Size", "How much should PV change (bar)?", initialvalue="10"))
+                    pv[time >= disturbance_time] -= disturbance_size  # Step change in PV
+                    pv += np.random.normal(0, noise, len(time))  # Add noise
 
             elif behavior == "Oscillatory":
                 if subtype == "SP Oscillates":
@@ -115,15 +123,15 @@ class PressureSimulatorGUI:
                 pv = [sp[0] if t < delay else sp[0] + 10 * np.tanh((t - 5) / 2) + np.random.normal(0, noise) for t in time]
                 pv = np.array(pv)
 
-            # Generate fake controller output
+            # Fake controller output
             out = sp - pv + np.random.normal(0, 0.2, len(time))
 
-            # Saturation
+            # Apply saturation
             if self.saturation_var.get():
                 pv = np.clip(pv, min_out, max_out)
                 out = np.clip(out, min_out, max_out)
 
-            # Save
+            # Save to CSV
             path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")])
             if not path:
                 return
@@ -136,7 +144,7 @@ class PressureSimulatorGUI:
             plt.plot(time, pv, label="PV")
             plt.plot(time, sp, label="SP", linestyle="--")
             plt.plot(time, out, label="OUT")
-            plt.title(f"Simulated Data ({behavior})")
+            plt.title(f"Simulated Data ({behavior} - {subtype})")
             plt.xlabel("Time (s)")
             plt.ylabel("Pressure (bar)")
             plt.legend()
@@ -150,29 +158,17 @@ class PressureSimulatorGUI:
         help_text = (
             "📘 Pressure Simulator Help\n\n"
             "This tool generates synthetic pressure control data for PID tuning.\n\n"
-            "✅ BEHAVIOR TYPES:\n"
-            "- Stable:\n"
-            "   • Constant: PV near SP with low noise\n"
-            "   • Drifting: PV drifts over time (e.g., leakage)\n"
-            "   • Random SP: SP jitters (e.g., manual tuning)\n\n"
-            "- Step Change:\n"
-            "   • Single: Sudden SP jump\n"
-            "   • Multiple: Several SP steps\n"
-            "   • Ramp: Gradual increase in SP\n\n"
-            "- Oscillatory:\n"
-            "   • PV Oscillates: simulates underdamped response\n"
-            "   • SP Oscillates: tests controller tracking\n\n"
-            "- Nonlinear:\n"
-            "   • Simulates actuator saturation and process limits\n\n"
+            "✅ NEW: 'PV Step Disturbance' option simulates real-world process disturbances!\n\n"
+            "• PV Step Disturbance → SP stays constant, but PV gets disturbed (step change in PV).\n"
+            "• Useful for testing how well your controller rejects load disturbances.\n\n"
             "🛠️ OPTIONS:\n"
-            "- Delay (s): PV lags behind SP\n"
-            "- Noise Level (bar): Adds realistic process noise\n"
-            "- Saturation (bar): Clamps PV/OUT to mimic equipment limits\n"
+            "- Delay (s): Time lag before PV responds.\n"
+            "- Noise Level (bar): Random disturbances.\n"
+            "- Saturation (bar): PV/OUT limits.\n"
         )
         messagebox.showinfo("Help / README", help_text)
 
 
-# === Launch GUI ===
 if __name__ == "__main__":
     root = tk.Tk()
     app = PressureSimulatorGUI(root)
