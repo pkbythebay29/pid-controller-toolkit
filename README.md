@@ -106,5 +106,5 @@ Pull requests and contributions are welcome!
 
 🧑‍💻 Maintainer
 
-    Created and maintained by [Your Name]
-    Connect on LinkedIn | GitHub
+    Created and maintained by pkbythebay29
+    Connect on [https://www.linkedin.com/in/pranavkannan/]
