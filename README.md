@@ -94,6 +94,72 @@ This toolkit was built to make PID controller tuning and testing easier and more
     Learning PID behavior through simulation.
 
 
+Initial Guess:
+
+    You provide Kp, Ki, Kd via the GUI (or use defaults).
+
+Controller Modeling:
+
+    A PID formula is simulated:
+    u(t)=Kpe(t)+Ki∫e(t)dt+Kdde(t)dt
+    u(t)=Kp​e(t)+Ki​∫e(t)dt+Kd​dtde(t)​
+
+    where e(t)=SP−PVe(t)=SP−PV
+
+Loss Function:
+
+    The optimizer compares actual vs. simulated controller output (OUT), minimizing mean squared error (MSE).
+
+Optimization:
+
+    scipy.optimize.minimize() is used (typically BFGS or L-BFGS-B).
+
+Result:
+
+    Updated Kp, Ki, Kd values and a plot comparing original vs. fitted response
+	
+	
+	🧠 This Toolkit’s Method (Data-Driven Optimization-Based Fitting)
+
+This approach uses a numerical optimizer (like scipy.optimize.minimize) to find the best Kp, Ki, Kd values by minimizing the error between actual and simulated control behavior.
+🧪 How It Works:
+
+    Simulate PID controller output using current Kp, Ki, Kd.
+
+    Compare simulated output to real recorded data (e.g. OUT, PV).
+
+    Minimize mean squared error (MSE) using an optimizer.
+
+✅ Advantages:
+
+    Works on real, noisy, or nonlinear data.
+
+    No need to model or step-test the process.
+
+    Fully automated and scriptable.
+
+    Can be used post-hoc with historical data.
+
+❌ Limitations:
+
+    Slower than rule-based methods.
+
+    Requires good initial guesses for best results.
+
+    Needs a reasonable amount of quality data to converge.
+
+📊 Summary Comparison
+Feature	Classic Tuning (ZN, CC, etc.)	This Toolkit (Optimization-Based)
+Model or step test required?	✅ Yes	❌ No
+Real data supported?	⚠️ Partially	✅ Fully
+Handles nonlinear processes?	❌ Poorly	✅ Yes
+Noise-tolerant?	❌ No	✅ Yes
+Tuning speed	✅ Fast	⚠️ Slower
+Accuracy	⚠️ Approximate	✅ Higher with good data
+Automation-ready	❌ Manual	✅ Scriptable + reproducible
+
+✅ This approach makes the toolkit ideal for modern process control systems, historical log analysis, student experiments, and noisy environments where traditional methods struggle.
+
 📜 License
 
 This project is licensed under the MIT License.
